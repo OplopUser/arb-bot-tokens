@@ -1,0 +1,47 @@
+[rpc]
+primary_http = "https://api.mainnet-beta.solana.com"
+primary_ws = ""
+fallback_http = []
+commitment = "processed"
+
+[wallet]
+path = ".secrets/wallet.json"
+
+[database]
+enabled = true
+path = ".arb/tokens.db"
+
+[trading]
+live = false
+trade_size_usd = 25.0
+min_net_profit_bps = 15.0
+fee_safety_buffer_bps = 5.0
+max_active_tokens = 25
+scan_interval_ms = 5000
+quote_mints = [
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+  "So11111111111111111111111111111111111111112",
+]
+major_denylist = ["So11111111111111111111111111111111111111112"]
+sol_usd_estimate = 100.0
+
+[rwa]
+enabled = false
+execution_enabled = false
+
+[discovery]
+enabled = true
+refresh_interval_ms = 300000
+index_enabled = true
+index_url = "https://api.dexscreener.com/latest/dex/tokens"
+max_index_pairs_per_token = 12
+min_index_liquidity_usd = 25000.0
+broad_rpc_enabled = false
+
+[fees]
+
+[venues]
+enabled = ["orca", "meteora", "raydium"]
+
+[submitters]
+enabled = ["primary_rpc"]

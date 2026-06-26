@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+target/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+config.toml
+.secrets/
+wallet.json
+
+# Logs
+logs/
+*.log
+.arb-live-route-cooldowns.json
+.arb-live-probe-stats.json
+.arb-live-route-cooldowns-*.json
+.arb-live-probe-stats-*.json
+.arb-pool-metadata.json
+.arb-pool-metadata-*.json
+.arb/
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# TypeScript
+*.tsbuildinfo
+
+# Coverage
+coverage/
+
+# Temporary files
+tmp/
+temp/

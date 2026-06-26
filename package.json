@@ -1,0 +1,46 @@
+{
+  "name": "arb-bot-tokens",
+  "version": "1.0.0",
+  "description": "Rust-first native Solana token pool arbitrage bot with Orca, Raydium, and Meteora support",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "arb-bot-tokens": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/cli.js",
+    "dev": "ts-node src/cli.ts",
+    "scan": "ts-node src/cli.ts scan",
+    "watch": "ts-node src/cli.ts watch",
+    "tokens": "ts-node src/cli.ts tokens",
+    "dashboard": "ts-node src/dashboard.ts",
+    "start:dashboard": "node dist/dashboard.js",
+    "rust:build": "cargo build -p arb-bot",
+    "rust:test": "cargo test -p arb-bot",
+    "rust:run": "cargo run -p arb-bot -- run --config config.tokens.toml",
+    "tokens:run": "cargo run -p arb-bot -- run --config config.tokens.toml",
+    "tokens:discover": "cargo run -p arb-bot -- discover --config config.tokens.toml",
+    "lint": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@orca-so/whirlpools-sdk": "^0.20.0",
+    "@project-serum/anchor": "^0.26.0",
+    "@raydium-io/raydium-sdk-v2": "^2.0.0-rc.20",
+    "@solana/web3.js": "^1.98.4",
+    "axios": "^1.7.9",
+    "chalk": "^5.4.1",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
