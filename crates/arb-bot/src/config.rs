@@ -644,10 +644,21 @@ impl BotConfig {
                 .with_context(|| format!("failed to parse {}", path.display()))?;
             config.resolve_env_references();
             config.disable_unsupported_rwa_issuers();
+            tracing::info!(
+                "loaded config from {} (rwa.enabled={})",
+                path.display(),
+                config.rwa.enabled
+            );
             return Ok(config);
         }
 
-        Ok(Self::from_env_defaults())
+        let config = Self::from_env_defaults();
+        tracing::warn!(
+            "config file {} not found; using environment defaults (rwa.enabled={}, set RWA_ENABLED=true to opt in)",
+            path.display(),
+            config.rwa.enabled
+        );
+        Ok(config)
     }
 
     pub fn from_env_defaults() -> Self {
@@ -806,7 +817,7 @@ fn default_true() -> bool {
 }
 
 fn default_rwa_enabled() -> bool {
-    env_bool("RWA_ENABLED").unwrap_or(true)
+    env_bool("RWA_ENABLED").unwrap_or(false)
 }
 
 fn default_rwa_assets_file() -> String {
@@ -1234,6 +1245,20 @@ mod tests {
         assert!(!config.execution.native_focus_routes.is_empty());
         assert!(config.aggregators.dynamic_discovery_enabled);
         assert!(!config.jupiter.seed_pairs.is_empty());
+        assert!(!config.rwa_only_mode());
+    }
+
+    #[test]
+    fn missing_config_file_falls_back_to_rwa_disabled() {
+        let config = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(BotConfig::load("does-not-exist/config.toml"))
+            .unwrap();
+        if env_bool("RWA_ENABLED").is_some() {
+            return;
+        }
+        assert!(!config.rwa.enabled);
         assert!(!config.rwa_only_mode());
     }
 

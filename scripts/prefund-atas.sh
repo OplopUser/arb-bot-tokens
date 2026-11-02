@@ -39,7 +39,8 @@ QUOTE_MINTS=(
 echo ""
 echo "Tokens to pre-fund: ${#BASE_TOKENS[@]}"
 echo "Quote mints: ${#QUOTE_MINTS[@]}"
-echo "Total ATAs: $(( ${#BASE_TOKENS[@]} * ${#QUOTE_MINTS[@]} ))"
+# One ATA per mint per wallet; quote mint ATAs usually exist already.
+echo "Total ATAs: ${#BASE_TOKENS[@]}"
 echo ""
 echo "Run this manually with:"
 echo "  solana config set --url \$RPC_URL"
@@ -55,5 +56,9 @@ echo ""
 echo "=== OR use this Node.js script ==="
 echo "(requires @solana/web3.js and @solana/spl-token)"
 echo ""
-echo "Est. cost: ~$(( ${#BASE_TOKENS[@]} * ${#QUOTE_MINTS[@]} * 0.00203928 )) SOL"
-echo "(~$(( ${#BASE_TOKENS[@]} * ${#QUOTE_MINTS[@]} * 2040000 )) lamports per ATA)"
+# ATA rent-exempt minimum in lamports; bash only does integer maths, so keep
+# totals in lamports and let awk format the SOL value.
+ATA_RENT_LAMPORTS=2039280
+TOTAL_LAMPORTS=$(( ${#BASE_TOKENS[@]} * ATA_RENT_LAMPORTS ))
+echo "Est. cost: ~$(awk -v l="$TOTAL_LAMPORTS" 'BEGIN { printf "%.6f", l / 1000000000 }') SOL"
+echo "(~$TOTAL_LAMPORTS lamports total, $ATA_RENT_LAMPORTS lamports per ATA)"

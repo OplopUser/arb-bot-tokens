@@ -214,12 +214,12 @@ async fn main() -> Result<()> {
         }
         Command::AtomicArb { config, submit } => {
             let config = BotConfig::load(config).await?;
-            if submit && (!config.trading.live || !config.execution.enabled) {
-                anyhow::bail!(
-                    "--submit requires trading.live=true and execution.enabled=true in config"
-                );
-            }
             let engine = BotEngine::new(config.clone());
+            if submit {
+                if let Some(reason) = engine.atomic_arb_submit_blocker().await {
+                    anyhow::bail!(reason);
+                }
+            }
             engine.resume().await;
             engine.run_cycle().await?;
             let snapshot = engine.state().read().await.clone();

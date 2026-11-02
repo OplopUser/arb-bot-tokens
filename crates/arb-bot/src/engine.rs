@@ -3944,6 +3944,23 @@ impl BotEngine {
         )
     }
 
+    /// Gate for the one-shot `atomic-arb --submit` CLI path. Applies the same
+    /// config arming and live risk checks as the engine's normal submit path.
+    pub async fn atomic_arb_submit_blocker(&self) -> Option<String> {
+        if let Some(reason) = atomic_arb_submit_config_blocker(&self.config) {
+            return Some(reason);
+        }
+        let live_risk = self.live_risk_snapshot().await;
+        if !live_risk.gate_open {
+            return Some(
+                live_risk
+                    .blocked_reason
+                    .unwrap_or_else(|| "live submit risk gate is closed".to_string()),
+            );
+        }
+        None
+    }
+
     async fn live_risk_snapshot(&self) -> LiveRiskSnapshot {
         let failed_fee_loss_count = self
             .database
@@ -5600,6 +5617,21 @@ fn live_risk_snapshot_from_config(
         ));
     }
     snapshot
+}
+
+fn atomic_arb_submit_config_blocker(config: &BotConfig) -> Option<String> {
+    if !config.trading.live || !config.execution.enabled {
+        return Some(
+            "--submit requires trading.live=true and execution.enabled=true in config".to_string(),
+        );
+    }
+    if !config.execution.submit_enabled {
+        return Some(
+            "--submit refused: execution.submit_enabled=false in config; set it to true to allow live submission"
+                .to_string(),
+        );
+    }
+    live_submit_proof_arming_blocker(&config.execution)
 }
 
 fn live_submit_proof_arming_blocker(execution: &ExecutionConfig) -> Option<String> {
@@ -11311,6 +11343,35 @@ mod tests {
             .as_deref()
             .unwrap_or_default()
             .contains("failed fee-loss cap reached"));
+    }
+
+    #[test]
+    fn atomic_arb_submit_requires_submit_enabled_and_proof_arming() {
+        let mut config = BotConfig::from_env_defaults();
+        config.trading.live = true;
+        config.execution.enabled = true;
+        config.execution.submit_enabled = false;
+        config.execution.require_simulation = false;
+        config.execution.max_live_trades_per_session = 1;
+        config.execution.max_live_trades_per_cycle = 1;
+        config.execution.max_live_trade_usd = 5.0;
+        assert!(atomic_arb_submit_config_blocker(&config)
+            .unwrap()
+            .contains("execution.submit_enabled=false"));
+
+        config.execution.submit_enabled = true;
+        assert!(atomic_arb_submit_config_blocker(&config).is_none());
+
+        config.execution.max_live_trades_per_session = 2;
+        assert!(atomic_arb_submit_config_blocker(&config)
+            .unwrap()
+            .contains("MAX_LIVE_TRADES_PER_SESSION=1"));
+
+        config.execution.max_live_trades_per_session = 1;
+        config.trading.live = false;
+        assert!(atomic_arb_submit_config_blocker(&config)
+            .unwrap()
+            .contains("trading.live=true"));
     }
 
     #[test]

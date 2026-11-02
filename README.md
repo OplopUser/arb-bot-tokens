@@ -150,7 +150,7 @@ With `submit_enabled = true`, the engine refuses to execute unless:
 
 ### Manual commands
 
-`live-smoke`, `chain-smoke` and `atomic-arb` are operator tools that bypass the scan loop. `atomic-arb --submit` and `live-smoke --submit` can send real transactions. `atomic-arb --submit` requires `trading.live = true` and `execution.enabled = true` and applies the per-transaction guards above, but it **does not check** `execution.submit_enabled` or the session risk gate. Without `--submit`, these commands only sign and simulate.
+`live-smoke`, `chain-smoke` and `atomic-arb` are operator tools that bypass the scan loop. `atomic-arb --submit` and `live-smoke --submit` can send real transactions. `atomic-arb --submit` goes through the same gates as the engine: it refuses to start (with an error naming the failing check) unless `trading.live = true`, `execution.enabled = true` and `execution.submit_enabled = true`, the submit arming gates and the session risk gate above pass, and it then applies the per-transaction guards. Without `--submit`, these commands only sign and simulate.
 
 Secrets stay out of git: `.secrets/`, `wallet.json`, `config.toml`, `.env` and the runtime state directory `.arb/` are all in `.gitignore`.
 
@@ -205,7 +205,7 @@ The Rust binary loads `.env` from the working directory if one exists.
 | `config.minimal.toml` | A minimal profile with `trading.live = false`. Omitted sections fall back to built-in or environment defaults. |
 | `config.toml` | Your local config (git-ignored). It is the **default** `--config` path for every subcommand. |
 
-If the file passed to `--config` does not exist, the bot does not fail. It starts from built-in defaults that can be adjusted with environment variables (for example `HELIOS_RPC_URL`, `HELIOS_WS_URL`, `SOLANA_WALLET_JSON`, `TRADING_LIVE`, `LIVE_EXECUTION_ENABLED`, `LIVE_SUBMIT_ENABLED`). The same environment-based defaults apply when a whole optional section (such as `[execution]` or `[simulation]`) is left out of the TOML. Values written in the TOML always win.
+If the file passed to `--config` does not exist, the bot does not fail. It logs a warning naming the missing path (and logs the path it loaded otherwise), then starts from built-in defaults with RWA disabled that can be adjusted with environment variables (for example `HELIOS_RPC_URL`, `HELIOS_WS_URL`, `SOLANA_WALLET_JSON`, `TRADING_LIVE`, `LIVE_EXECUTION_ENABLED`, `LIVE_SUBMIT_ENABLED`, `RWA_ENABLED`). The same environment-based defaults apply when a whole optional section (such as `[execution]` or `[simulation]`) is left out of the TOML. Values written in the TOML always win.
 
 ### Key sections and settings
 
@@ -259,7 +259,7 @@ cargo run -p arb-bot -- dry-run --config config.tokens.toml
 
 # One scan cycle, then build/sign/simulate atomic arbitrage for the top candidates
 cargo run -p arb-bot -- atomic-arb --config config.tokens.toml          # simulate only
-# cargo run -p arb-bot -- atomic-arb --config ... --submit              # sends real transactions
+# cargo run -p arb-bot -- atomic-arb --config ... --submit              # sends real transactions; requires submit_enabled and the arming/risk gates
 
 # Database reports
 cargo run -p arb-bot -- db-summary --config config.tokens.toml
@@ -377,7 +377,7 @@ At runtime the bot writes local state, all git-ignored: the SQLite database unde
 - **Trading risk.** Enabling submission spends real SOL on fees and tips, and a transaction can land after the edge has gone. Use a dedicated wallet with small balances, and read the code paths before arming anything.
 - **Latency-sensitive.** Results depend heavily on RPC/WebSocket quality and transaction landing. The public mainnet RPC is not suitable for anything beyond experimentation.
 - **Two-leg direct routes only.** The native executor handles two-pool round trips on a single pair, not multi-hop cycles.
-- **RWA code is dormant.** `rwa.rs` and the `/rwa/*` endpoints come from a related real-world-asset variant. The RWA operating profile and asset registry are not part of this repository, and RWA is disabled in all shipped configs.
+- **RWA code is dormant.** `rwa.rs` and the `/rwa/*` endpoints come from a related real-world-asset variant. The RWA operating profile and asset registry are not part of this repository, and RWA is disabled in all shipped configs and by default (opt in with `[rwa] enabled = true` or `RWA_ENABLED=true`).
 - **TypeScript is legacy.** The TS scanner and dashboard predate the Rust engine and are not actively developed.
 - `execution.execution_profile` is a descriptive label only. It does not change behaviour.
 
