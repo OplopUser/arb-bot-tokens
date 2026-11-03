@@ -32,21 +32,14 @@ const METEORA_DLMM_BIN_LEN: usize = 144;
 #[derive(Debug, Clone)]
 pub struct NativeAtomicPlan {
     pub instructions: Vec<Instruction>,
-    pub buy_min_out_atoms: u64,
-    pub sell_min_out_atoms: u64,
     pub dexes: Vec<String>,
     pub buy_quote_out_atoms: u64,
     pub sell_quote_out_atoms: u64,
-    pub sell_amount_atoms: u64,
     pub execution_cost_quote_atoms: u64,
-    pub quote_account: String,
-    pub quote_account_before_atoms: u64,
     pub blocked_reason: Option<String>,
-    pub simulation_priced: bool,
     pub fresh_requote_complete: bool,
     pub requote_net_profit_bps: f64,
     pub requote_net_profit_usd: f64,
-    pub exploratory_simulation: bool,
     pub jito_tip_included: bool,
     pub latency_trace: Vec<NativeLatencyMark>,
 }
@@ -55,7 +48,6 @@ pub struct NativeAtomicPlan {
 pub struct NativeFreshQuote {
     pub buy_quote_out_atoms: u64,
     pub sell_quote_out_atoms: u64,
-    pub sell_amount_atoms: u64,
     pub execution_cost_quote_atoms: u64,
     pub fresh_requote_complete: bool,
     pub requote_net_profit_bps: f64,
@@ -68,7 +60,6 @@ impl From<NativeAtomicPlan> for NativeFreshQuote {
         Self {
             buy_quote_out_atoms: plan.buy_quote_out_atoms,
             sell_quote_out_atoms: plan.sell_quote_out_atoms,
-            sell_amount_atoms: plan.sell_amount_atoms,
             execution_cost_quote_atoms: plan.execution_cost_quote_atoms,
             fresh_requote_complete: plan.fresh_requote_complete,
             requote_net_profit_bps: plan.requote_net_profit_bps,
@@ -86,7 +77,6 @@ pub struct NativeLatencyMark {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativePlanBuildMode {
-    Strict,
     ExploratorySimulation,
     PriceOnly,
 }
@@ -159,230 +149,6 @@ impl NativeSwapBuilder {
             && native_pool_candidate(opportunity.sell_venue, &opportunity.sell_pool)
     }
 
-    pub async fn build_atomic_plan(
-        &self,
-        wallet: &Pubkey,
-        opportunity: &Opportunity,
-    ) -> Result<Option<NativeAtomicPlan>> {
-        if !Self::is_native_candidate(opportunity) {
-            return Ok(None);
-        }
-
-        let wallet_address = address_from_pubkey(wallet);
-        let quote_mint = pubkey_from_str(&opportunity.pair.quote_mint)
-            .context("invalid opportunity quote mint")?;
-        let base_mint = pubkey_from_str(&opportunity.pair.base_mint)
-            .context("invalid opportunity base mint")?;
-        let quote_token_program = self.token_program_for_mint(&quote_mint).await?;
-        let base_token_program = self.token_program_for_mint(&base_mint).await?;
-
-        let buy_amount_in: u64 = opportunity
-            .input_quote_atoms
-            .try_into()
-            .context("native buy input amount does not fit u64")?;
-        let quoted_base_out: u64 = opportunity
-            .base_atoms
-            .try_into()
-            .context("native buy output amount does not fit u64")?;
-        if buy_amount_in == 0 || quoted_base_out == 0 {
-            return Ok(None);
-        }
-
-        let slippage_bps = u64::from(live_native_slippage_bps(self.config.jupiter.slippage_bps))
-            + self.config.trading.fee_safety_buffer_bps.ceil().max(0.0) as u64;
-        let buy_min_out = slippage_floor(quoted_base_out, slippage_bps).max(1);
-        let sell_amount = buy_min_out;
-        let estimated_sell_out_for_sell_amount =
-            scale_amount(opportunity.output_quote_atoms, sell_amount, quoted_base_out)?;
-        let slippage_sell_min = slippage_floor(estimated_sell_out_for_sell_amount, slippage_bps);
-        let required_profit_atoms = required_profit_atoms(
-            opportunity.input_quote_atoms,
-            self.config
-                .execution
-                .min_requote_profit_bps
-                .max(self.config.trading.min_net_profit_bps),
-        );
-        let no_loss_min = opportunity
-            .input_quote_atoms
-            .saturating_add(required_profit_atoms)
-            .min(u128::from(u64::MAX)) as u64;
-        let sell_min_out = slippage_sell_min.max(no_loss_min).max(1);
-
-        let buy = self
-            .build_swap_instruction(
-                opportunity.buy_venue,
-                &opportunity.buy_pool,
-                wallet_address,
-                address_from_pubkey(&quote_mint),
-                address_from_pubkey(&base_mint),
-                address_from_pubkey(&quote_token_program),
-                address_from_pubkey(&base_token_program),
-                buy_amount_in,
-                buy_min_out,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "native buy instruction build failed for {} {}",
-                    opportunity.buy_venue, opportunity.buy_pool
-                )
-            })?;
-        let sell = self
-            .build_swap_instruction(
-                opportunity.sell_venue,
-                &opportunity.sell_pool,
-                wallet_address,
-                address_from_pubkey(&base_mint),
-                address_from_pubkey(&quote_mint),
-                address_from_pubkey(&base_token_program),
-                address_from_pubkey(&quote_token_program),
-                sell_amount,
-                sell_min_out,
-            )
-            .await
-            .with_context(|| {
-                format!(
-                    "native sell instruction build failed for {} {}",
-                    opportunity.sell_venue, opportunity.sell_pool
-                )
-            })?;
-
-        let mut instructions = Vec::new();
-        instructions.extend(native_compute_budget_instructions(&self.config));
-        if self.config.fees.jito_tip_lamports > 0 {
-            instructions.push(jito_tip_ix(wallet, self.config.fees.jito_tip_lamports)?);
-        }
-        if let Some(blocker) = self
-            .prefunded_hot_account_blocker(
-                wallet,
-                &quote_mint,
-                &base_mint,
-                &quote_token_program,
-                &base_token_program,
-                buy_amount_in,
-            )
-            .await?
-        {
-            return Ok(Some(NativeAtomicPlan {
-                instructions: Vec::new(),
-                buy_min_out_atoms: buy_min_out,
-                sell_min_out_atoms: sell_min_out,
-                dexes: vec![buy.dex_name, sell.dex_name],
-                buy_quote_out_atoms: quoted_base_out,
-                sell_quote_out_atoms: estimated_sell_out_for_sell_amount,
-                sell_amount_atoms: sell_amount,
-                execution_cost_quote_atoms: 0,
-                quote_account: String::new(),
-                quote_account_before_atoms: 0,
-                blocked_reason: Some(blocker),
-                simulation_priced: false,
-                fresh_requote_complete: false,
-                requote_net_profit_bps: opportunity.net_profit_bps,
-                requote_net_profit_usd: opportunity.net_profit_usd,
-                exploratory_simulation: false,
-                jito_tip_included: false,
-                latency_trace: Vec::new(),
-            }));
-        }
-        instructions.extend(native_setup_prefix_instructions(
-            &self.config,
-            wallet,
-            &quote_mint,
-            &base_mint,
-            &quote_token_program,
-            &base_token_program,
-            buy_amount_in,
-        )?);
-        instructions.push(buy.instruction);
-        instructions.push(sell.instruction);
-        instructions.extend(native_setup_suffix_instructions(
-            &self.config,
-            wallet,
-            &quote_mint,
-            &quote_token_program,
-        )?);
-        Ok(Some(NativeAtomicPlan {
-            instructions,
-            buy_min_out_atoms: buy_min_out,
-            sell_min_out_atoms: sell_min_out,
-            dexes: vec![buy.dex_name, sell.dex_name],
-            buy_quote_out_atoms: quoted_base_out,
-            sell_quote_out_atoms: estimated_sell_out_for_sell_amount,
-            sell_amount_atoms: sell_amount,
-            execution_cost_quote_atoms: 0,
-            quote_account: String::new(),
-            quote_account_before_atoms: 0,
-            blocked_reason: None,
-            simulation_priced: false,
-            fresh_requote_complete: false,
-            requote_net_profit_bps: opportunity.net_profit_bps,
-            requote_net_profit_usd: opportunity.net_profit_usd,
-            exploratory_simulation: false,
-            jito_tip_included: false,
-            latency_trace: Vec::new(),
-        }))
-    }
-
-    async fn build_swap_instruction(
-        &self,
-        venue: Venue,
-        pool: &str,
-        user: Address,
-        token_in: Address,
-        token_out: Address,
-        token_in_program: Address,
-        token_out_program: Address,
-        amount_in: u64,
-        min_amount_out: u64,
-    ) -> Result<NativeSwapInstruction> {
-        let pool_key = pubkey_from_str(pool).context("invalid native pool address")?;
-        let pool_address = address_from_pubkey(&pool_key);
-        let pool_account = self
-            .rpc
-            .get_multiple_accounts(&[pool.to_string()])
-            .await?
-            .into_iter()
-            .next()
-            .flatten()
-            .ok_or_else(|| anyhow!("native pool account missing: {pool}"))?;
-        let owner = pubkey_from_str(&pool_account.owner)
-            .with_context(|| format!("invalid owner for native pool {pool}"))?;
-        let dex = dex_for_pool_owner(venue, &owner)
-            .ok_or_else(|| anyhow!("unsupported native {venue} pool owner {owner}"))?;
-
-        let req = SwapRequest::new(
-            dex.kind,
-            user,
-            token_in,
-            token_out,
-            amount_in,
-            min_amount_out,
-        )
-        .with_pool(pool_address)
-        .with_token_programs(token_in_program, token_out_program);
-        let initial_plan = swaps::fetch_plan(&req);
-        let initial_keys = initial_plan
-            .addresses()
-            .map(address_to_string)
-            .collect::<Vec<_>>();
-        let initial_data = self.fetch_account_data(&initial_keys).await?;
-        let followup_data = match swaps::followup_keys(&req, &initial_data)? {
-            Some(plan) => {
-                let keys = plan.addresses().map(address_to_string).collect::<Vec<_>>();
-                self.fetch_account_data(&keys).await?
-            }
-            None => Vec::new(),
-        };
-        let snap = swaps::decode_snapshot(&req, &initial_data, &followup_data)?;
-        let mut buf = InstructionBuf::new();
-        swaps::build_swap(&req, &snap, &mut buf)?;
-
-        Ok(NativeSwapInstruction {
-            instruction: instruction_from_swaps(buf.as_view()),
-            dex_name: dex.name.to_string(),
-        })
-    }
-
     async fn fetch_account_data(&self, keys: &[String]) -> Result<Vec<Vec<u8>>> {
         if let Some(ref sub) = self.pool_subscription {
             if let Some(ttl_ms) = self.strict_fresh_cache_ttl_ms {
@@ -448,7 +214,7 @@ impl NativeSwapBuilder {
                 let accounts =
                     refresh_optional_strict_cached_accounts(&self.rpc, sub, &keys, ttl_ms).await?;
                 let mut data = Vec::with_capacity(targets.len());
-                for (target, account) in targets.iter().zip(accounts.into_iter()) {
+                for (target, account) in targets.iter().zip(accounts) {
                     match account {
                         Some(account) => data.push(account.data),
                         None if !target.required => {
@@ -472,7 +238,7 @@ impl NativeSwapBuilder {
             .collect::<Vec<_>>();
         let accounts = self.rpc.get_multiple_accounts(&keys).await?;
         let mut data = Vec::with_capacity(targets.len());
-        for (target, account) in targets.iter().zip(accounts.into_iter()) {
+        for (target, account) in targets.iter().zip(accounts) {
             match account {
                 Some(account) => data.push(account.data),
                 None if !target.required => {
@@ -664,36 +430,6 @@ impl NativeSwapBuilder {
             opportunity,
             NativePlanBuildMode::ExploratorySimulation,
             exploratory_sell_amount_cap(opportunity),
-        )
-        .await
-    }
-
-    pub async fn build_exploratory_simulation_plan_with_sell_amount(
-        &self,
-        wallet: &Pubkey,
-        opportunity: &Opportunity,
-        sell_amount: u64,
-    ) -> Result<Option<NativeAtomicPlan>> {
-        self.build_atomic_plan_with_mode(
-            wallet,
-            opportunity,
-            NativePlanBuildMode::ExploratorySimulation,
-            sell_amount,
-        )
-        .await
-    }
-
-    pub async fn build_atomic_plan_with_sell_amount(
-        &self,
-        wallet: &Pubkey,
-        opportunity: &Opportunity,
-        sell_amount: u64,
-    ) -> Result<Option<NativeAtomicPlan>> {
-        self.build_atomic_plan_with_mode(
-            wallet,
-            opportunity,
-            NativePlanBuildMode::Strict,
-            sell_amount,
         )
         .await
     }
@@ -957,21 +693,14 @@ impl NativeSwapBuilder {
         if blocked_reason.is_some() && mode != NativePlanBuildMode::ExploratorySimulation {
             return Ok(Some(NativeAtomicPlan {
                 instructions: Vec::new(),
-                buy_min_out_atoms: buy_min_out,
-                sell_min_out_atoms: final_sell_min_out,
                 dexes: vec![buy.dex_name, sell.dex_name],
                 buy_quote_out_atoms: buy_quote_out,
                 sell_quote_out_atoms: sell_quote_out,
-                sell_amount_atoms: sell_base_amount,
                 execution_cost_quote_atoms: execution_cost_atoms,
-                quote_account: String::new(),
-                quote_account_before_atoms: 0,
                 blocked_reason,
-                simulation_priced,
                 fresh_requote_complete,
                 requote_net_profit_bps,
                 requote_net_profit_usd,
-                exploratory_simulation: mode == NativePlanBuildMode::ExploratorySimulation,
                 jito_tip_included: false,
                 latency_trace,
             }));
@@ -1003,21 +732,14 @@ impl NativeSwapBuilder {
             );
             return Ok(Some(NativeAtomicPlan {
                 instructions: Vec::new(),
-                buy_min_out_atoms: buy_min_out,
-                sell_min_out_atoms: final_sell_min_out,
                 dexes: vec![buy.dex_name, sell.dex_name],
                 buy_quote_out_atoms: buy_quote_out,
                 sell_quote_out_atoms: sell_quote_out,
-                sell_amount_atoms: sell_base_amount,
                 execution_cost_quote_atoms: execution_cost_atoms,
-                quote_account: String::new(),
-                quote_account_before_atoms: 0,
                 blocked_reason: Some(blocker),
-                simulation_priced,
                 fresh_requote_complete,
                 requote_net_profit_bps,
                 requote_net_profit_usd,
-                exploratory_simulation: mode == NativePlanBuildMode::ExploratorySimulation,
                 jito_tip_included: tip_included,
                 latency_trace,
             }));
@@ -1052,21 +774,14 @@ impl NativeSwapBuilder {
 
         Ok(Some(NativeAtomicPlan {
             instructions,
-            buy_min_out_atoms: buy_min_out,
-            sell_min_out_atoms: final_sell_min_out,
             dexes: vec![buy.dex_name, sell.dex_name],
             buy_quote_out_atoms: buy_quote_out,
             sell_quote_out_atoms: sell_quote_out,
-            sell_amount_atoms: sell_base_amount,
             execution_cost_quote_atoms: execution_cost_atoms,
-            quote_account: String::new(),
-            quote_account_before_atoms: 0,
             blocked_reason,
-            simulation_priced,
             fresh_requote_complete,
             requote_net_profit_bps,
             requote_net_profit_usd,
-            exploratory_simulation: mode == NativePlanBuildMode::ExploratorySimulation,
             jito_tip_included: tip_included,
             latency_trace,
         }))
@@ -1145,7 +860,7 @@ impl NativeSwapBuilder {
         };
         let pool_snapshot = PoolSnapshot {
             dex,
-            pool_data: pool_data,
+            pool_data,
             pool_address: address_to_string(&pool_address),
             additional_data: initial_data.clone(),
             followup_data: followup_data.clone(),
@@ -1373,11 +1088,7 @@ impl NativeSwapBuilder {
                 .ok_or_else(|| "Raydium CPMM fresh quote returned no output".to_string())
             }
             DexKind::OrcaWhirlpool | DexKind::RaydiumClmm => {
-                let vault_data = snapshot
-                    .additional_data
-                    .iter()
-                    .map(|data| data.clone())
-                    .collect::<Vec<_>>();
+                let vault_data = snapshot.additional_data.to_vec();
                 native_clmm_fresh_quote(&snapshot.pool_data, &vault_data, amount_in, side)
                     .ok_or_else(|| "CLMM fresh quote returned no output".to_string())
             }
@@ -1407,14 +1118,10 @@ fn native_execution_cost_quote_atoms(
     if quote_mint == WSOL_MINT {
         return Some(lamports);
     }
+    // Non-SOL quote mints are USD stables (USDC/USDT), so price the SOL cost in USD.
     let sol_price = sol_usd_estimate.max(1.0);
-    let quote_to_sol = if quote_mint == "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v" {
-        1.0 / sol_price
-    } else {
-        1.0 / sol_price
-    };
     let cost_in_quote =
-        (lamports as f64 * quote_to_sol * 10f64.powi(quote_decimals as i32)) / 1_000_000_000.0;
+        (lamports as f64 / 1_000_000_000.0) * sol_price * 10f64.powi(quote_decimals as i32);
     if cost_in_quote.is_finite() && cost_in_quote > 0.0 {
         Some(cost_in_quote as u64)
     } else {
@@ -1520,30 +1227,6 @@ fn native_fresh_quote_missing_reason(side: &str, error: Option<&str>) -> String 
     }
 }
 
-fn native_direct_requote_gate_reason(
-    fresh_requote_complete: bool,
-    requote_net_profit_bps: f64,
-    min_requote_profit_bps: f64,
-    fallback_profit_bps: f64,
-) -> Option<String> {
-    if !fresh_requote_complete {
-        return Some(
-            "native direct fresh requote is incomplete; fallback quotes may be stale".to_string(),
-        );
-    }
-    let effective_bps = if requote_net_profit_bps.is_finite() {
-        requote_net_profit_bps
-    } else {
-        fallback_profit_bps
-    };
-    if effective_bps < min_requote_profit_bps {
-        return Some(format!(
-            "native direct re-quote net profit {requote_net_profit_bps:.2} bps is below required {min_requote_profit_bps:.2} bps"
-        ));
-    }
-    None
-}
-
 fn requote_profit_bps(profit_atoms: i128, input_atoms: u64) -> f64 {
     if input_atoms == 0 {
         return f64::NEG_INFINITY;
@@ -1598,6 +1281,7 @@ enum NativeDlmmSwapDirection {
 }
 
 impl NativeDlmmSwapDirection {
+    #[cfg(test)]
     fn from_side(side: SwapSide) -> Self {
         match side {
             SwapSide::QuoteToBase => Self::YToX,
@@ -1649,6 +1333,7 @@ fn native_dlmm_bin_array_fetch_targets(
         .collect()
 }
 
+#[cfg(test)]
 fn native_dlmm_fresh_quote_from_bin_arrays(
     pool_data: &[u8],
     amount_in: u64,
@@ -1866,7 +1551,7 @@ fn mul_div_ceil_u64_saturating(numerator: u128, multiplier: u128, denominator: u
 }
 
 fn div_ceil_u128(numerator: u128, denominator: u128) -> u128 {
-    numerator / denominator + u128::from(numerator % denominator != 0)
+    numerator / denominator + u128::from(!numerator.is_multiple_of(denominator))
 }
 
 fn read_u16_at(data: &[u8], offset: usize) -> Option<u16> {
@@ -1891,30 +1576,6 @@ fn read_u128_at(data: &[u8], offset: usize) -> Option<u128> {
     Some(u128::from_le_bytes(
         data.get(offset..offset + 16)?.try_into().ok()?,
     ))
-}
-
-fn native_dlmm_fresh_quote(pool_data: &[u8], amount_in: u64, side: SwapSide) -> Option<u64> {
-    if pool_data.len() < 688 {
-        return None;
-    }
-    let token_x_reserve = u64::from_le_bytes(pool_data[72..80].try_into().ok()?);
-    let token_y_reserve = u64::from_le_bytes(pool_data[80..88].try_into().ok()?);
-    let (reserve_in, reserve_out) = match side {
-        SwapSide::QuoteToBase => (token_y_reserve, token_x_reserve),
-        SwapSide::BaseToQuote => (token_x_reserve, token_y_reserve),
-    };
-    if reserve_in == 0 || reserve_out == 0 {
-        return None;
-    }
-    let fee_bps = 25u64;
-    let amount_in_after_fee = amount_in.saturating_mul(10_000 - fee_bps) / 10_000;
-    let amount_out = ((amount_in_after_fee as u128).saturating_mul(reserve_out as u128)
-        / (reserve_in as u128 + amount_in_after_fee as u128)) as u64;
-    if amount_out == 0 {
-        None
-    } else {
-        Some(amount_out)
-    }
 }
 
 fn native_clmm_fresh_quote(
@@ -2073,18 +1734,6 @@ async fn strict_fresh_cached_account(
         ));
     }
     Ok(account)
-}
-
-async fn strict_fresh_cached_accounts(
-    sub: &PoolSubscriptionManager,
-    pubkeys: &[String],
-    ttl_ms: u64,
-) -> Result<Vec<CachedAccount>> {
-    let mut accounts = Vec::with_capacity(pubkeys.len());
-    for pubkey in pubkeys {
-        accounts.push(strict_fresh_cached_account(sub, pubkey, ttl_ms).await?);
-    }
-    Ok(accounts)
 }
 
 fn cached_account_age_ms(account: &CachedAccount) -> u64 {
@@ -2465,17 +2114,6 @@ fn associated_token_address(
     Ok(pubkey_from_address(&address))
 }
 
-fn scale_amount(amount: u128, numerator: u64, denominator: u64) -> Result<u64> {
-    if denominator == 0 {
-        return Err(anyhow!("cannot scale amount with zero denominator"));
-    }
-    Ok(amount
-        .saturating_mul(u128::from(numerator))
-        .checked_div(u128::from(denominator))
-        .unwrap_or_default()
-        .min(u128::from(u64::MAX)) as u64)
-}
-
 fn slippage_floor(amount: u64, slippage_bps: u64) -> u64 {
     let retained_bps = 10_000u64.saturating_sub(slippage_bps.min(9_999));
     ((u128::from(amount) * u128::from(retained_bps)) / 10_000) as u64
@@ -2487,13 +2125,6 @@ fn live_native_slippage_bps(default_slippage_bps: u16) -> u16 {
         .filter(|value| *value > 0)
         .unwrap_or(default_slippage_bps.max(1))
         .min(2_000)
-}
-
-fn required_profit_atoms(input_atoms: u128, min_profit_bps: f64) -> u128 {
-    if min_profit_bps <= 0.0 || !min_profit_bps.is_finite() {
-        return 0;
-    }
-    ((input_atoms as f64) * min_profit_bps / 10_000.0).ceil() as u128
 }
 
 fn pubkey_from_str(value: &str) -> Result<Pubkey> {
@@ -2867,7 +2498,7 @@ mod tests {
             2_000,
             &address_from_pubkey(&token_y),
             &address_from_pubkey(&token_x),
-            &[bin_array.clone()],
+            std::slice::from_ref(&bin_array),
         )
         .expect("token Y to token X quote");
         assert_eq!(y_to_x.amount_out, 1_000);
@@ -2915,7 +2546,7 @@ mod tests {
             99_500
         );
         assert_eq!(
-            native_buy_min_out_for_mode(NativePlanBuildMode::Strict, u64::MAX, 7_000_000, 50),
+            native_buy_min_out_for_mode(NativePlanBuildMode::PriceOnly, u64::MAX, 7_000_000, 50),
             6_965_000
         );
     }
@@ -2944,7 +2575,7 @@ mod tests {
         );
         assert_eq!(
             native_buy_min_out_after_fresh_quote(
-                NativePlanBuildMode::Strict,
+                NativePlanBuildMode::PriceOnly,
                 1,
                 u64::MAX,
                 Some(16_808_607),
@@ -2975,8 +2606,27 @@ mod tests {
             12_000_000
         );
         assert_eq!(
-            native_sell_amount_for_mode(NativePlanBuildMode::Strict, u64::MAX, 16_808_607, 1),
+            native_sell_amount_for_mode(NativePlanBuildMode::PriceOnly, u64::MAX, 16_808_607, 1),
             16_808_607
+        );
+    }
+
+    #[test]
+    fn native_execution_cost_converts_lamports_to_usd_quote_atoms() {
+        let usdc = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+        // 1 SOL at $150 costs $150, i.e. 150_000_000 USDC atoms.
+        assert_eq!(
+            native_execution_cost_quote_atoms(1_000_000_000, 6, usdc, 150.0),
+            Some(150_000_000)
+        );
+        // 0.5 SOL at $100 costs $50.
+        assert_eq!(
+            native_execution_cost_quote_atoms(500_000_000, 6, usdc, 100.0),
+            Some(50_000_000)
+        );
+        assert_eq!(
+            native_execution_cost_quote_atoms(10_000_000, 9, WSOL_MINT, 150.0),
+            Some(10_000_000)
         );
     }
 

@@ -253,7 +253,7 @@ pub fn decimals_for_mint(mint: &str, target_decimals: &HashMap<String, u8>) -> u
     target_decimals
         .get(mint)
         .copied()
-        .or_else(|| match mint {
+        .or(match mint {
             USDC_MINT | USDT_MINT => Some(6),
             WSOL_MINT => Some(9),
             _ => None,

@@ -81,15 +81,23 @@ mod tests {
 
     #[test]
     fn preserve_process_env_lock_accepts_boolish_true_values() {
-        assert!(preserve_process_env_on_dotenv_refresh_from_value(Some("true")));
+        assert!(preserve_process_env_on_dotenv_refresh_from_value(Some(
+            "true"
+        )));
         assert!(preserve_process_env_on_dotenv_refresh_from_value(Some("1")));
-        assert!(preserve_process_env_on_dotenv_refresh_from_value(Some(" TRUE ")));
+        assert!(preserve_process_env_on_dotenv_refresh_from_value(Some(
+            " TRUE "
+        )));
     }
 
     #[test]
     fn preserve_process_env_lock_is_off_by_default() {
         assert!(!preserve_process_env_on_dotenv_refresh_from_value(None));
-        assert!(!preserve_process_env_on_dotenv_refresh_from_value(Some("false")));
-        assert!(!preserve_process_env_on_dotenv_refresh_from_value(Some("0")));
+        assert!(!preserve_process_env_on_dotenv_refresh_from_value(Some(
+            "false"
+        )));
+        assert!(!preserve_process_env_on_dotenv_refresh_from_value(Some(
+            "0"
+        )));
     }
 }

@@ -627,7 +627,7 @@ fn health_snapshot(state: &StateSnapshot) -> HealthSnapshot {
                 name: path.name.clone(),
                 enabled: path.enabled,
                 active: path.active,
-                readiness: path.readiness.clone(),
+                readiness: path.readiness,
                 requires_api_key: path.requires_api_key,
                 has_api_key: path.has_api_key,
                 status: path.status.clone(),

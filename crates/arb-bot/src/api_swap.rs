@@ -743,7 +743,7 @@ impl ApiSwapBuilder {
         let accounts = self.rpc.get_multiple_accounts(&unique).await?;
         unique
             .into_iter()
-            .zip(accounts.into_iter())
+            .zip(accounts)
             .map(|(address, account)| {
                 let account = account
                     .ok_or_else(|| anyhow!("address lookup table account missing: {address}"))?;

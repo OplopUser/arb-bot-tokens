@@ -1,5 +1,6 @@
 use serde::{de::Error as DeError, Deserialize, Deserializer, Serialize, Serializer};
 use serde_json::Value;
+#[cfg(test)]
 use std::collections::BTreeMap;
 use std::fmt;
 
@@ -455,12 +456,14 @@ pub struct FocusedRouteRequoteLatencySnapshot {
     pub last_quote_to_submit_latency_ms: Option<u64>,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccountFetchPlan {
     pub pubkeys: Vec<String>,
     roles_by_pubkey: BTreeMap<String, Vec<String>>,
 }
 
+#[cfg(test)]
 impl AccountFetchPlan {
     pub fn from_requirements(requirements: &[RouteAccountRequirement]) -> Self {
         let mut pubkeys = Vec::new();

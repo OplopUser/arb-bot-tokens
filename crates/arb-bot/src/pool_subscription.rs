@@ -98,6 +98,7 @@ impl PoolPlanKeys {
 }
 
 impl PoolSubscriptionManager {
+    #[cfg(test)]
     pub fn new(ws_url: String) -> Self {
         Self::new_with_budget(ws_url, usize::MAX)
     }
@@ -154,6 +155,7 @@ impl PoolSubscriptionManager {
         self.refresh_stats_without_socket().await;
     }
 
+    #[cfg(test)]
     pub async fn unsubscribe(&self, pubkeys: &[String]) {
         {
             let mut list = self.subscribed.write().await;
@@ -254,6 +256,7 @@ impl PoolSubscriptionManager {
         self.cache.read().await.len()
     }
 
+    #[cfg(test)]
     pub fn cache_arc(&self) -> Arc<RwLock<HashMap<String, CachedAccount>>> {
         self.cache.clone()
     }
@@ -363,6 +366,7 @@ impl PoolSubscriptionManager {
         }
     }
 
+    #[cfg(test)]
     pub async fn ingest_account_notification(
         &self,
         val: &Value,
@@ -415,6 +419,7 @@ impl PoolSubscriptionManager {
         }
     }
 
+    #[cfg(test)]
     pub async fn focused_route_requote_latency(
         &self,
         route_edge_id: i64,
@@ -450,6 +455,7 @@ impl PoolSubscriptionManager {
         snapshots
     }
 
+    #[cfg(test)]
     async fn apply_account_update(&self, account: CachedAccount) {
         let pubkey = account.pubkey.clone();
         let slot = account.slot;
@@ -466,6 +472,7 @@ impl PoolSubscriptionManager {
             .await;
     }
 
+    #[cfg(test)]
     async fn schedule_focused_requotes_for_account(&self, pubkey: &str, slot: u64) {
         let route_ids = self
             .focused_account_routes
@@ -577,6 +584,7 @@ impl PoolSubscriptionManager {
         });
     }
 
+    #[cfg(test)]
     pub async fn shutdown(&self) {
         *self.shutdown.write().await = true;
     }
@@ -1038,50 +1046,32 @@ fn account_from_notification(
     val: &Value,
     active_ids: &HashMap<u64, String>,
 ) -> Option<CachedAccount> {
-    let params = match val.get("params") {
-        Some(p) => p,
-        None => return None,
-    };
-    let result = match params.get("result") {
-        Some(r) => r,
-        None => return None,
-    };
-    let context = match result.get("context") {
-        Some(c) => c,
-        None => return None,
-    };
+    let params = val.get("params")?;
+    let result = params.get("result")?;
+    let context = result.get("context")?;
     let slot = context.get("slot").and_then(|s| s.as_u64()).unwrap_or(0);
-    let value = match result.get("value") {
-        Some(v) => v,
-        None => return None,
-    };
-    let owner = match value.get("owner").and_then(|o| o.as_str()) {
-        Some(o) => o.to_string(),
-        None => return None,
+    let value = result.get("value")?;
+    let owner = {
+        let o = value.get("owner").and_then(|o| o.as_str())?;
+        o.to_string()
     };
     let lamports = value.get("lamports").and_then(|l| l.as_u64()).unwrap_or(0);
-    let data = match value.get("data") {
-        Some(d) => {
-            if let Some(arr) = d.as_array() {
-                if let (Some(data_str), Some(_encoding)) = (
-                    arr.first().and_then(|v| v.as_str()),
-                    arr.get(1).and_then(|v| v.as_str()),
-                ) {
-                    match base64::Engine::decode(
-                        &base64::engine::general_purpose::STANDARD,
-                        data_str,
-                    ) {
-                        Ok(decoded) => decoded,
-                        Err(_) => return None,
-                    }
-                } else {
-                    return None;
+    let data = {
+        let d = value.get("data")?;
+        {
+            let arr = d.as_array()?;
+            if let (Some(data_str), Some(_encoding)) = (
+                arr.first().and_then(|v| v.as_str()),
+                arr.get(1).and_then(|v| v.as_str()),
+            ) {
+                match base64::Engine::decode(&base64::engine::general_purpose::STANDARD, data_str) {
+                    Ok(decoded) => decoded,
+                    Err(_) => return None,
                 }
             } else {
                 return None;
             }
         }
-        None => return None,
     };
 
     let sub_id = params.get("subscription").and_then(|s| s.as_u64());

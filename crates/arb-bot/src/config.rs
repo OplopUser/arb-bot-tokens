@@ -200,16 +200,12 @@ pub struct RwaConfig {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum RwaMode {
+    #[default]
     Neutral,
     Directional,
     Both,
-}
-
-impl Default for RwaMode {
-    fn default() -> Self {
-        Self::Neutral
-    }
 }
 
 impl Default for RwaConfig {
@@ -1228,9 +1224,9 @@ mod tests {
     }
 
     #[test]
-    fn active_tokens_config_disables_rwa_and_submit() {
+    fn example_config_disables_rwa_and_submit() {
         let config: BotConfig =
-            toml::from_str(include_str!("../../../config.tokens.toml")).unwrap();
+            toml::from_str(include_str!("../../../config.example.toml")).unwrap();
 
         assert!(!config.rwa.enabled);
         assert!(!config.rwa.execution_enabled);
@@ -1306,6 +1302,16 @@ providers = []
         assert_eq!(config.dynamic_max_mcap_usd, 250_000_000.0);
         assert!(!config.dynamic_allow_unverified);
         assert_eq!(config.dynamic_min_supported_venues, 2);
+    }
+
+    #[test]
+    fn minimal_config_is_read_only() {
+        let config: BotConfig =
+            toml::from_str(include_str!("../../../config.minimal.toml")).unwrap();
+
+        assert!(!config.trading.live);
+        assert!(!config.rwa.enabled);
+        assert!(!config.rwa_only_mode());
     }
 
     #[test]

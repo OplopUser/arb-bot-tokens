@@ -1,3 +1,7 @@
+# Minimal read-only profile: scans and records quotes, never signs or submits
+# (trading.live = false). No wallet file is needed. Omitted sections fall back
+# to built-in / environment defaults (see README, "Config files").
+
 [rpc]
 primary_http = "https://api.mainnet-beta.solana.com"
 primary_ws = ""

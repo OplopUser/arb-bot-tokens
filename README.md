@@ -119,7 +119,7 @@ Live submission needs **several independent switches** to be on together. The sh
 | --- | --- | --- | --- |
 | `false` | any | any | Monitor and plan only. No wallet needed for scanning. |
 | `true` | `false` | any | Scan only. Execution is reported as disabled. |
-| `true` | `true` | `false` | Candidates are re-quoted, built, **signed and simulated**, never submitted. This is what `config.tokens.toml` ships with (`execution_profile = "token_probe_no_submit"`, a descriptive label). |
+| `true` | `true` | `false` | Candidates are re-quoted, built, **signed and simulated**, never submitted. This is what `config.example.toml` ships with (`execution_profile = "token_probe_no_submit"`, a descriptive label). |
 | `true` | `true` | `true` | Submission is possible, but only once the arming and risk gates below pass. |
 
 ### Submit arming gates (engine)
@@ -156,10 +156,10 @@ Secrets stay out of git: `.secrets/`, `wallet.json`, `config.toml`, `.env` and t
 
 ## Requirements
 
-- Rust 1.81 or newer (`rust-version` in `crates/arb-bot/Cargo.toml`)
-- Node.js 18 or newer (only for the TypeScript tools and helper script)
+- Rust 1.89 or newer (`rust-version` in `crates/arb-bot/Cargo.toml`; required by the locked Solana crates)
+- Node.js 18 or newer (only for the TypeScript tools and helper script). The npm package is an ES module (`"type": "module"`).
 - A Solana RPC endpoint. The public mainnet endpoint is the default, but a private low-latency RPC with WebSocket support is strongly recommended.
-- A Solana keypair JSON file. This is required for signing and simulation, and for wallet balance checks. It is not needed for read-only scanning with `trading.live = false`.
+- A Solana keypair JSON file. This is required for signing and simulation, and for wallet balance checks. It is not needed for read-only scanning with `trading.live = false` (for example with `config.minimal.toml`).
 
 ## Build and setup
 
@@ -171,7 +171,8 @@ cd arb-bot-tokens
 cargo build -p arb-bot            # or: npm run rust:build
 
 # TypeScript tools (optional)
-npm install
+npm ci
+npm run build                     # tsc -> dist/
 ```
 
 Local secrets and overrides, all ignored by git:
@@ -181,7 +182,7 @@ mkdir -p .secrets
 # Put the keypair JSON at .secrets/wallet.json (or point [wallet].path elsewhere).
 
 # Keep private settings out of the committed profile:
-cp config.tokens.toml config.toml
+cp config.example.toml config.toml
 # then edit [rpc].primary_http / primary_ws in config.toml
 ```
 
@@ -200,9 +201,8 @@ The Rust binary loads `.env` from the working directory if one exists.
 
 | File | Purpose |
 | --- | --- |
-| `config.tokens.toml` | The committed token profile, used by the `npm run tokens:*` scripts. It scans and runs signed simulations but never submits. |
-| `config.example.toml` | The same settings as `config.tokens.toml` without comments. A starting point for your own `config.toml`. |
-| `config.minimal.toml` | A minimal profile with `trading.live = false`. Omitted sections fall back to built-in or environment defaults. |
+| `config.example.toml` | The documented token profile and the template for your own `config.toml`. Used by the `npm run tokens:*` / `rust:run` scripts. With a wallet present it re-quotes, signs and simulates candidates, but never submits (`execution.submit_enabled = false`). |
+| `config.minimal.toml` | A read-only profile with `trading.live = false`: scans and quotes, never signs. No wallet file needed. Omitted sections fall back to built-in or environment defaults. |
 | `config.toml` | Your local config (git-ignored). It is the **default** `--config` path for every subcommand. |
 
 If the file passed to `--config` does not exist, the bot does not fail. It logs a warning naming the missing path (and logs the path it loaded otherwise), then starts from built-in defaults with RWA disabled that can be adjusted with environment variables (for example `HELIOS_RPC_URL`, `HELIOS_WS_URL`, `SOLANA_WALLET_JSON`, `TRADING_LIVE`, `LIVE_EXECUTION_ENABLED`, `LIVE_SUBMIT_ENABLED`, `RWA_ENABLED`). The same environment-based defaults apply when a whole optional section (such as `[execution]` or `[simulation]`) is left out of the TOML. Values written in the TOML always win.
@@ -226,7 +226,7 @@ If the file passed to `--config` does not exist, the bot does not fail. It logs 
 | `[submitters]` | `enabled`. Adding `"jito"` together with a non-empty `execution.jito_block_engine_url` also sends through Jito. RPC submission uses the primary and fallback endpoints. |
 | `[rwa]` | RWA scanner. `enabled = false` in all shipped profiles. |
 
-### Shipped token profile (`config.tokens.toml`)
+### Shipped token profile (`config.example.toml`)
 
 - `trading.live = true`, `execution.enabled = true`, `execution.submit_enabled = false`, `require_simulation = true`
 - Quote mints USDC, USDT and WSOL. Jupiter seed pairs for HYPE, TRUMP, FARTCOIN and WIF against USDC and WSOL.
@@ -243,43 +243,46 @@ These are off unless enabled through the environment. For example, `AGGREGATOR_E
 
 ### Rust engine
 
-All subcommands accept `--config <path>` (default `config.toml`). Log verbosity follows `RUST_LOG`, and the `arb_bot` crate logs at `info` by default.
+All subcommands accept `--config <path>` (default `config.toml`). Log verbosity follows `RUST_LOG`, and the `arb_bot` crate logs at `info` by default. Logs go to stderr, so the JSON that `discover`, `dry-run` and the smoke commands print on stdout can be piped or redirected directly.
 
 ```bash
 # Long-running scanner + dashboard (default 127.0.0.1:8791)
-cargo run -p arb-bot -- run --config config.tokens.toml [--host 127.0.0.1] [--port 8791]
+cargo run -p arb-bot -- run --config config.example.toml [--host 127.0.0.1] [--port 8791]
 npm run tokens:run                      # same as above
 
-# One scan cycle, print the full state snapshot as JSON
-cargo run -p arb-bot -- discover --config config.tokens.toml
+# One read-only scan cycle with no wallet, print the full state snapshot as JSON
+cargo run -p arb-bot -- discover --config config.minimal.toml > state.json
+
+# One scan cycle with the full token profile
+cargo run -p arb-bot -- discover --config config.example.toml
 npm run tokens:discover
 
 # One scan cycle, print a transaction plan for the best opportunity
-cargo run -p arb-bot -- dry-run --config config.tokens.toml
+cargo run -p arb-bot -- dry-run --config config.example.toml
 
 # One scan cycle, then build/sign/simulate atomic arbitrage for the top candidates
-cargo run -p arb-bot -- atomic-arb --config config.tokens.toml          # simulate only
+cargo run -p arb-bot -- atomic-arb --config config.example.toml          # simulate only
 # cargo run -p arb-bot -- atomic-arb --config ... --submit              # sends real transactions; requires submit_enabled and the arming/risk gates
 
 # Database reports
-cargo run -p arb-bot -- db-summary --config config.tokens.toml
-cargo run -p arb-bot -- db-summary --config config.tokens.toml --route-status
-cargo run -p arb-bot -- db-summary --config config.tokens.toml --repair-indexed-pool-kinds
-cargo run -p arb-bot -- db-summary --config config.tokens.toml --backfill-pool-accounts --backfill-limit 100
+cargo run -p arb-bot -- db-summary --config config.example.toml
+cargo run -p arb-bot -- db-summary --config config.example.toml --route-status
+cargo run -p arb-bot -- db-summary --config config.example.toml --repair-indexed-pool-kinds
+cargo run -p arb-bot -- db-summary --config config.example.toml --backfill-pool-accounts --backfill-limit 100
 
 # Replay recorded optimizer decisions and report quote drift (read-only DB)
-cargo run -p arb-bot -- quote-replay --config config.tokens.toml --limit 50
+cargo run -p arb-bot -- quote-replay --config config.example.toml --limit 50
 ```
 
 Smoke-test tools for checking connectivity and signing with tiny amounts through Jupiter. They simulate unless `--submit` is passed:
 
 ```bash
 # Single swap (defaults: WSOL -> USDC, 1_000_000 atoms; capped by --max-usd or max_live_smoke_trade_usd)
-cargo run -p arb-bot -- live-smoke --config config.tokens.toml [--input-mint ...] [--output-mint ...] \
+cargo run -p arb-bot -- live-smoke --config config.example.toml [--input-mint ...] [--output-mint ...] \
   [--amount-atoms N] [--slippage-bps N] [--max-usd X] [--submit]
 
 # Chained swap-instruction transaction through several outputs (simulated only)
-cargo run -p arb-bot -- chain-smoke --config config.tokens.toml --input-mint <MINT> \
+cargo run -p arb-bot -- chain-smoke --config config.example.toml --input-mint <MINT> \
   --output-mint <MINT>[,<MINT>...] --amount-atoms N [--slippage-bps N] [--max-usd 2.0]
 ```
 
@@ -295,14 +298,15 @@ cargo run -p arb-bot -- chain-smoke --config config.tokens.toml --input-mint <MI
 `src/` holds the original TypeScript scanner. It fetches quotes from Jupiter, Raydium, Orca, Meteora and DFlow and estimates profit. It **does not send transactions**. It is configured through environment variables (`HELIOS_RPC_URL`, `SOLANA_WALLET_JSON`, `JUPITER_API_URL`, `DFLOW_API_URL`, `MIN_PROFIT_USD`, `MAX_SLIPPAGE_BPS`, `SIMULATION_ONLY`, `TRADE_SIZE_USD`, `POLL_INTERVAL_MS`, ...).
 
 ```bash
-npx ts-node src/cli.ts scan --pair SOL-USDC [--venue jupiter orca] [--bid-ask]
-npx ts-node src/cli.ts watch --pair SOL-USDC [--interval 5000]
-npx ts-node src/cli.ts scan-all [--limit 10]
+npx tsx src/cli.ts scan --pair SOL-USDC [--venue jupiter orca] [--bid-ask]
+npx tsx src/cli.ts watch --pair SOL-USDC [--interval 5000]
+npx tsx src/cli.ts scan-all [--limit 10]
 npm run tokens -- [--json]          # list known token mints
-npx ts-node src/cli.ts config       # print effective config
+npx tsx src/cli.ts config       # print effective config
 
-npm run dashboard                   # TS dashboard on 127.0.0.1:8787
+npm run dashboard                   # TS dashboard on 127.0.0.1:8787 (via tsx)
 npm run build && npm run start      # compiled CLI from dist/
+npm run start:dashboard             # compiled dashboard from dist/
 ```
 
 The TS dashboard reads `DASHBOARD_HOST`, `DASHBOARD_PORT`, `DASHBOARD_PAIRS`, `DASHBOARD_VENUES`, `DASHBOARD_INTERVAL_MS`, `DASHBOARD_PAIR_CONCURRENCY` and `DASHBOARD_QUOTE_DELAY_MS`.
@@ -337,8 +341,9 @@ The API has no authentication. Keep it bound to localhost. Ctrl-C also triggers 
 The Rust crate has unit tests across most modules, covering config defaults, quoting math, the optimizer, guards, the DB layer and engine gating.
 
 ```bash
-cargo test -p arb-bot        # or: npm run rust:test
+cargo test --workspace       # or: npm run rust:test
 npm run lint                 # TypeScript type-check (tsc --noEmit)
+npm run build                # compile the TypeScript tools to dist/
 ```
 
 There is no CI configuration in this repository.
@@ -355,9 +360,8 @@ arb-bot-tokens/
 │       ├── engine.rs           # scan loop and execution gating
 │       ├── venues/             # orca.rs, raydium.rs, meteora.rs
 │       └── ...                 # see module table above
-├── config.tokens.toml          # committed token profile (no submit)
-├── config.example.toml         # template for config.toml
-├── config.minimal.toml         # minimal monitor-only profile
+├── config.example.toml         # documented token profile / template for config.toml (no submit)
+├── config.minimal.toml         # read-only monitor profile (no wallet)
 ├── scripts/
 │   ├── read-dashboard-state.mjs
 │   └── prefund-atas.sh
@@ -380,6 +384,9 @@ At runtime the bot writes local state, all git-ignored: the SQLite database unde
 - **RWA code is dormant.** `rwa.rs` and the `/rwa/*` endpoints come from a related real-world-asset variant. The RWA operating profile and asset registry are not part of this repository, and RWA is disabled in all shipped configs and by default (opt in with `[rwa] enabled = true` or `RWA_ENABLED=true`).
 - **TypeScript is legacy.** The TS scanner and dashboard predate the Rust engine and are not actively developed.
 - `execution.execution_profile` is a descriptive label only. It does not change behaviour.
+- **Monitor-mode profits are unverified leads.** With `trading.live = false` the reported opportunities come from local and price-only pool quotes and are never re-quoted, so large spreads (several hundred bps) are common and mostly not executable.
+- **Route-graph persistence is not wired up yet.** The SQLite writers for tokens, pools, route families and edges are covered by tests but not called by the engine, so a fresh database holds little beyond its schema after a read-only run, and the persisted focused-route graph starts empty.
+- **Public endpoints are rate limited.** The public Jupiter quote API (`lite-api.jup.ag`) returns HTTP 429 under modest load, and the public mainnet RPC is slow. Both are fine for a short read-only check only.
 
 ## License
 

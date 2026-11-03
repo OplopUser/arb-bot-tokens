@@ -442,6 +442,7 @@ pub fn optimize_two_pool_route_size(
     Some(result)
 }
 
+#[cfg(test)]
 pub fn route_net_profit_quote_atoms(
     buy_pool: &PoolState,
     sell_pool: &PoolState,

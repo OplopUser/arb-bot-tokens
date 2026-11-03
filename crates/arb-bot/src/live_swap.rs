@@ -239,36 +239,6 @@ pub struct AtomicArbReport {
     pub latency_trace: Vec<ExecutionLatencyMark>,
 }
 
-#[derive(Debug, Clone)]
-pub struct NativeSimulationProfit {
-    pub pre_quote_amount_atoms: u64,
-    pub post_quote_amount_atoms: u64,
-    pub quote_delta_atoms: i128,
-    pub execution_cost_quote_atoms: u64,
-    pub net_profit_atoms: i128,
-    pub net_profit_usd: f64,
-    pub net_profit_bps: f64,
-}
-
-#[derive(Debug, Clone)]
-pub struct NativeSignedSimulation {
-    pub signed_base64: String,
-    pub signed_transaction_bytes: usize,
-    pub simulation_ok: bool,
-    pub simulation_error: Option<String>,
-    pub simulation_logs: Vec<String>,
-    pub simulation_profit: Option<NativeSimulationProfit>,
-}
-
-#[derive(Debug, Clone)]
-pub struct NativeJupiterReference {
-    pub buy_quote_out_amount: Option<String>,
-    pub sell_quote_out_amount: Option<String>,
-    pub net_profit_bps: Option<f64>,
-    pub net_profit_usd: Option<f64>,
-    pub error: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutionLatencyMark {
     pub stage: String,
@@ -2020,7 +1990,7 @@ impl JupiterLiveSwapExecutor {
             .await
             .context("failed to fetch address lookup table accounts")?;
         let mut lookup_tables = Vec::new();
-        for (address, account) in addresses.iter().zip(accounts.into_iter()) {
+        for (address, account) in addresses.iter().zip(accounts) {
             let Some(account) = account else {
                 return Err(anyhow!("address lookup table account missing: {address}"));
             };
@@ -2160,144 +2130,6 @@ impl JupiterLiveSwapExecutor {
     async fn send_jito_bundle(&self, signed_base64: &str) -> Result<String> {
         let jito_url = &self.config.execution.jito_block_engine_url;
         send_jito_bundle(signed_base64, jito_url, &self.client).await
-    }
-
-    async fn send_jito_transaction(&self, signed_base64: &str) -> Result<String> {
-        let jito_url = &self.config.execution.jito_block_engine_url;
-        let tx_url = format!("{jito_url}/api/v1/transactions");
-        // Jito endpoints expect base58-encoded transactions
-        let bytes = general_purpose::STANDARD
-            .decode(signed_base64)
-            .context("base64 decode failed")?;
-        let b58_tx = bs58::encode(&bytes).into_string();
-        let body = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "sendTransaction",
-            "params": [b58_tx, {
-                "encoding": "base58",
-                "skipPreflight": true,
-                "maxRetries": 0,
-                "preflightCommitment": "processed"
-            }]
-        });
-        let response = self
-            .client
-            .post(&tx_url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("jito txn forwarder request failed")?;
-        let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .context("jito response parse failed")?;
-        if !status.is_success() {
-            let err_msg = payload
-                .pointer("/error/message")
-                .and_then(Value::as_str)
-                .unwrap_or("unknown jito error");
-            return Err(anyhow!("jito txn forwarder http {status}: {err_msg}"));
-        }
-        payload
-            .pointer("/result")
-            .and_then(Value::as_str)
-            .map(ToOwned::to_owned)
-            .ok_or_else(|| anyhow!("jito txn forwarder response missing signature"))
-    }
-
-    pub async fn fetch_jito_tip_accounts(&self) -> Result<Vec<String>> {
-        let jito_url = &self.config.execution.jito_block_engine_url;
-        let url = format!("{jito_url}/api/v1/bundles");
-        let body = json!({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "getTipAccounts",
-            "params": []
-        });
-        let response = self
-            .client
-            .post(&url)
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .context("jito getTipAccounts request failed")?;
-        let status = response.status();
-        let payload: Value = response
-            .json()
-            .await
-            .context("jito getTipAccounts parse failed")?;
-        if !status.is_success() {
-            return Err(anyhow!("jito getTipAccounts http {status}"));
-        }
-        if let Some(err) = payload.get("error") {
-            return Err(anyhow!("jito getTipAccounts rpc error: {err}"));
-        }
-        let accounts: Vec<String> = payload
-            .get("result")
-            .and_then(|r| r.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(accounts)
-    }
-
-    async fn wait_for_bundle_status(
-        &self,
-        bundle_id: &str,
-        sig: &str,
-        jito_url: &str,
-        client: &Client,
-    ) -> Result<Option<String>> {
-        let status_url = format!("{jito_url}/api/v1/bundles");
-        // Poll for up to 4 slots (~1.6s) for bundle inclusion
-        for _ in 0..4 {
-            tokio::time::sleep(Duration::from_millis(400)).await;
-            let body = json!({
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "getBundleStatuses",
-                "params": [[bundle_id]]
-            });
-            match client
-                .post(&status_url)
-                .header("Content-Type", "application/json")
-                .json(&body)
-                .send()
-                .await
-            {
-                Ok(response) => {
-                    let payload: Value = match response.json().await {
-                        Ok(v) => v,
-                        Err(_) => continue,
-                    };
-                    if let Some(statuses) =
-                        payload.pointer("/result/value").and_then(Value::as_array)
-                    {
-                        for status in statuses {
-                            if let Some(conf_status) =
-                                status.get("confirmation_status").and_then(Value::as_str)
-                            {
-                                if conf_status == "finalized" || conf_status == "confirmed" {
-                                    info!("jito bundle included in block: {bundle_id}");
-                                    return Ok(Some(sig.to_string()));
-                                }
-                            }
-                        }
-                    }
-                }
-                Err(_) => continue,
-            }
-        }
-        // Bundle not included yet, fall back to other methods
-        info!("jito bundle not included in block, falling back: {bundle_id}");
-        Ok(None)
     }
 
     async fn send_transaction_multi_rpc(&self, signed_base64: &str) -> Result<String> {

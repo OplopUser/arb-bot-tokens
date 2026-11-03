@@ -95,7 +95,7 @@ pub struct StateSnapshot {
     pub runtime_evidence: RuntimeEvidenceSnapshot,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RuntimeEvidenceSnapshot {
     pub database_enabled: bool,
     pub database_path: Option<String>,
@@ -106,22 +106,6 @@ pub struct RuntimeEvidenceSnapshot {
     pub memory_simulation_attempted_count: u64,
     pub memory_execution_attempted_count: u64,
     pub memory_execution_blocked_count: u64,
-}
-
-impl Default for RuntimeEvidenceSnapshot {
-    fn default() -> Self {
-        Self {
-            database_enabled: false,
-            database_path: None,
-            database_error: None,
-            quote_observations_delta: 0,
-            simulation_results_delta: 0,
-            execution_attempts_delta: 0,
-            memory_simulation_attempted_count: 0,
-            memory_execution_attempted_count: 0,
-            memory_execution_blocked_count: 0,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -536,7 +520,7 @@ impl From<&TokenPair> for ScanTargetPair {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DiscoverySnapshot {
     pub enabled: bool,
     pub refresh_interval_ms: u64,
@@ -550,25 +534,6 @@ pub struct DiscoverySnapshot {
     pub broad_rpc_enabled: bool,
     pub decoded_pools: usize,
     pub errors: Vec<DiscoveryIssue>,
-}
-
-impl Default for DiscoverySnapshot {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            refresh_interval_ms: 0,
-            attempted_this_cycle: false,
-            last_attempt_cycle: None,
-            last_attempt_unix_ms: None,
-            next_attempt_in_ms: None,
-            jobs: 0,
-            indexed_candidates: 0,
-            targeted_accounts: 0,
-            broad_rpc_enabled: false,
-            decoded_pools: 0,
-            errors: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -2308,7 +2273,7 @@ impl BotEngine {
             if !seen.insert(mint.clone()) {
                 continue;
             }
-            if mint == &WSOL_MINT {
+            if mint == WSOL_MINT {
                 let prefunded_token_amount = if self.config.execution.native_prefunded_hot_accounts
                 {
                     match self.wallet_token_balance_atoms(&wallet_pubkey, mint).await {
@@ -2978,7 +2943,7 @@ impl BotEngine {
                     };
                 }
             };
-            let output_delta = output_after.checked_sub(output_before).unwrap_or_default();
+            let output_delta = output_after.saturating_sub(output_before);
             if index + 1 < opportunity.execution_legs.len() && output_delta == 0 {
                 return RwaExecutionRecord {
                     id,
@@ -4002,7 +3967,7 @@ impl BotEngine {
             let chunk = chunk.to_vec();
             match self.rpc.get_multiple_accounts(&chunk).await {
                 Ok(accounts) => {
-                    for (pubkey, account) in chunk.iter().zip(accounts.into_iter()) {
+                    for (pubkey, account) in chunk.iter().zip(accounts) {
                         let Some(candidate) = candidates_by_address.get(pubkey) else {
                             continue;
                         };
@@ -9468,7 +9433,7 @@ mod tests {
         persist_simulation_evidence(&db, 10, &unmapped, "attempt-unmapped", 11_000)
             .expect("unmapped simulation evidence");
 
-        assert_eq!(family_id > 0, true);
+        assert!(family_id > 0);
         let summary = db.summary().unwrap();
         assert_eq!(summary.simulation_results, 1);
         assert_eq!(summary.execution_attempts, 1);
@@ -10056,8 +10021,7 @@ mod tests {
     #[test]
     fn rwa_negative_requote_cooldown_is_short_for_transient_arb_windows() {
         let _guard = EnvVarGuard::set("LIVE_NEGATIVE_REQUOTE_COOLDOWN_SECS", "900");
-        let reason =
-            "RWA quote-return live re-quote profit -468.70 bps is below required 3.00 bps";
+        let reason = "RWA quote-return live re-quote profit -468.70 bps is below required 3.00 bps";
 
         assert_eq!(
             rwa_route_leg_cooldown_duration_for_reason(reason),
@@ -10555,8 +10519,8 @@ mod tests {
 
         let (candidates, source, _) = engine.execution_candidates_for_cycle(
             &[price_only_buy, price_only_sell],
-            &[opportunity.clone()],
-            &[pair.clone()],
+            std::slice::from_ref(&opportunity),
+            std::slice::from_ref(&pair),
             &FeeBreakdown::default(),
             100.0,
             None,
@@ -10744,7 +10708,7 @@ mod tests {
         let (db_only_candidates, db_only_source, _) = engine.execution_candidates_for_cycle(
             &[],
             &[],
-            &[pair.clone()],
+            std::slice::from_ref(&pair),
             &FeeBreakdown::default(),
             100.0,
             None,
@@ -10861,7 +10825,7 @@ mod tests {
         let (candidates, source, _) = engine.execution_candidates_for_cycle(
             &[buy, sell],
             &[],
-            &[pair.clone()],
+            std::slice::from_ref(&pair),
             &FeeBreakdown::default(),
             100.0,
             None,
@@ -11073,7 +11037,6 @@ mod tests {
         let fresh_quote = crate::native_swap::NativeFreshQuote {
             buy_quote_out_atoms: 0,
             sell_quote_out_atoms: 0,
-            sell_amount_atoms: 0,
             execution_cost_quote_atoms: 0,
             fresh_requote_complete: false,
             requote_net_profit_bps: 0.0,
@@ -11192,7 +11155,6 @@ mod tests {
         let fresh_quote = crate::native_swap::NativeFreshQuote {
             buy_quote_out_atoms: 50_000_000,
             sell_quote_out_atoms: 130_000_000,
-            sell_amount_atoms: 50_000_000,
             execution_cost_quote_atoms: 1_000_000,
             fresh_requote_complete: false,
             requote_net_profit_bps: 3_000.0,
@@ -11459,7 +11421,6 @@ mod tests {
         let fresh_quote = crate::native_swap::NativeFreshQuote {
             buy_quote_out_atoms: 11_000_000,
             sell_quote_out_atoms: 10_350_000,
-            sell_amount_atoms: 11_000_000,
             execution_cost_quote_atoms: 5_000,
             fresh_requote_complete: true,
             requote_net_profit_bps: 350.0,

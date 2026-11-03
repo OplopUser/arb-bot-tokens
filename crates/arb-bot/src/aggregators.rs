@@ -1296,9 +1296,8 @@ impl PendingProviderBudget {
         let mut names = self
             .pending_by_provider
             .iter()
-            .filter_map(|(name, pending)| {
-                (*pending > 0 && !self.responded_providers.contains(name)).then(|| name.clone())
-            })
+            .filter(|&(name, pending)| *pending > 0 && !self.responded_providers.contains(name))
+            .map(|(name, _pending)| name.clone())
             .collect::<Vec<_>>();
         names.sort();
         names
@@ -1308,7 +1307,8 @@ impl PendingProviderBudget {
         let mut names = self
             .pending_by_provider
             .iter()
-            .filter_map(|(name, pending)| (*pending > 0).then(|| name.clone()))
+            .filter(|&(_name, pending)| *pending > 0)
+            .map(|(name, _pending)| name.clone())
             .collect::<Vec<_>>();
         names.sort();
         names
@@ -3052,7 +3052,7 @@ fn quote_roundtrip_opportunity(
     fee.protocol_fee_atoms = fee
         .protocol_fee_atoms
         .saturating_add(sell.fee.protocol_fee_atoms);
-    fee.slippage_bps = fee.slippage_bps + sell.fee.slippage_bps;
+    fee.slippage_bps += sell.fee.slippage_bps;
 
     Some(Opportunity {
         pair: buy.pair.clone(),

@@ -1,7 +1,9 @@
+#[cfg(test)]
+use crate::types::PoolKind;
 use crate::types::{
-    PoolKind, RouteAccountRequirement, RouteReadinessState, TokenPair, Venue,
-    METEORA_DAMM_V2_PROGRAM, METEORA_DLMM_PROGRAM, METEORA_POOLS_PROGRAM, RAYDIUM_AMM_V4_PROGRAM,
-    RAYDIUM_CLMM_PROGRAM, RAYDIUM_CPMM_PROGRAM,
+    RouteAccountRequirement, RouteReadinessState, TokenPair, Venue, METEORA_DAMM_V2_PROGRAM,
+    METEORA_DLMM_PROGRAM, METEORA_POOLS_PROGRAM, RAYDIUM_AMM_V4_PROGRAM, RAYDIUM_CLMM_PROGRAM,
+    RAYDIUM_CPMM_PROGRAM,
 };
 use anyhow::{anyhow, Context, Result};
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -228,6 +230,7 @@ pub struct RouteAccountFetchTarget {
     pub requirements: Vec<RouteAccountRequirement>,
 }
 
+#[cfg(test)]
 pub struct TokenGraphRecord {
     pub mint: String,
     pub symbol: String,
@@ -236,6 +239,7 @@ pub struct TokenGraphRecord {
     pub now_unix_ms: u128,
 }
 
+#[cfg(test)]
 pub struct PoolGraphRecord {
     pub pool_address: String,
     pub venue: Venue,
@@ -262,6 +266,7 @@ pub struct PoolAccountGraphRecord {
     pub now_unix_ms: u128,
 }
 
+#[cfg(test)]
 pub struct RouteFamilyGraphRecord {
     pub pair: TokenPair,
     pub buy_venue: Venue,
@@ -271,6 +276,7 @@ pub struct RouteFamilyGraphRecord {
     pub now_unix_ms: u128,
 }
 
+#[cfg(test)]
 pub struct RouteEdgeGraphRecord {
     pub route_family_id: i64,
     pub buy_pool: String,
@@ -295,25 +301,24 @@ pub struct AccountManifestGraphRecord {
     pub decode_status: String,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub enum RouteAccountObservationOutcome {
     Fetched,
     Missing,
-    OwnerMismatch,
-    Stale,
 }
 
+#[cfg(test)]
 impl RouteAccountObservationOutcome {
     pub fn as_str(self) -> &'static str {
         match self {
             RouteAccountObservationOutcome::Fetched => "fetched",
             RouteAccountObservationOutcome::Missing => "missing",
-            RouteAccountObservationOutcome::OwnerMismatch => "owner_mismatch",
-            RouteAccountObservationOutcome::Stale => "stale",
         }
     }
 }
 
+#[cfg(test)]
 pub struct RouteAccountObservationRecord {
     pub route_edge_id: i64,
     pub role: String,
@@ -948,6 +953,7 @@ impl ArbDatabase {
             .collect()
     }
 
+    #[cfg(test)]
     pub fn insert_route_account_observation(
         &self,
         record: &RouteAccountObservationRecord,
@@ -977,6 +983,7 @@ impl ArbDatabase {
         Ok(self.conn.last_insert_rowid())
     }
 
+    #[cfg(test)]
     pub fn cool_down_route_edge(
         &self,
         route_edge_id: i64,
@@ -1005,59 +1012,11 @@ impl ArbDatabase {
             .map_err(Into::into)
     }
 
-    pub fn mark_route_accounts_ready(
-        &self,
-        route_edge_id: i64,
-        now_unix_ms: u128,
-    ) -> Result<usize> {
-        self.conn
-            .execute(
-                r#"
-                UPDATE route_edges
-                SET readiness_state = ?1,
-                    last_blocker = NULL,
-                    cooldown_until_unix_ms = NULL,
-                    updated_at_unix_ms = ?2
-                WHERE id = ?3
-                "#,
-                params![
-                    RouteReadinessState::FreshAccountsReady.as_str(),
-                    unix_ms_i64(now_unix_ms)?,
-                    route_edge_id,
-                ],
-            )
-            .map_err(Into::into)
-    }
-
-    pub fn mark_route_quote_ready(&self, route_edge_id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE route_edges SET readiness_state = ?1, updated_at_unix_ms = ?2 WHERE id = ?3",
-            params![
-                RouteReadinessState::FreshQuoteReady.as_str(),
-                unix_ms_i64(system_now_unix_ms()?)?,
-                route_edge_id,
-            ],
-        )?;
-        Ok(())
-    }
-
     pub fn mark_route_simulation_positive(&self, route_edge_id: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE route_edges SET readiness_state = ?1, last_blocker = NULL, updated_at_unix_ms = ?2 WHERE id = ?3",
             params![
                 RouteReadinessState::SimulationPositive.as_str(),
-                unix_ms_i64(system_now_unix_ms()?)?,
-                route_edge_id,
-            ],
-        )?;
-        Ok(())
-    }
-
-    pub fn mark_route_submit_eligible(&self, route_edge_id: i64) -> Result<()> {
-        self.conn.execute(
-            "UPDATE route_edges SET readiness_state = ?1, last_blocker = NULL, updated_at_unix_ms = ?2 WHERE id = ?3",
-            params![
-                RouteReadinessState::SubmitEligible.as_str(),
                 unix_ms_i64(system_now_unix_ms()?)?,
                 route_edge_id,
             ],
@@ -1485,6 +1444,7 @@ impl ArbDatabase {
         Ok(self.conn.last_insert_rowid())
     }
 
+    #[cfg(test)]
     pub fn upsert_token(&self, record: &TokenGraphRecord) -> Result<()> {
         self.conn.execute(
             r#"
@@ -1508,6 +1468,7 @@ impl ArbDatabase {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn upsert_pool(&self, record: &PoolGraphRecord) -> Result<()> {
         self.conn.execute(
             r#"
@@ -1581,6 +1542,7 @@ impl ArbDatabase {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn delete_pool_accounts_for_pool(&self, pool_address: &str) -> Result<usize> {
         self.conn
             .execute(
@@ -1590,6 +1552,7 @@ impl ArbDatabase {
             .map_err(Into::into)
     }
 
+    #[cfg(test)]
     pub fn pool_addresses_missing_program_owner(&self, limit: usize) -> Result<Vec<String>> {
         if limit == 0 {
             return Ok(Vec::new());
@@ -1609,6 +1572,7 @@ impl ArbDatabase {
             .map_err(Into::into)
     }
 
+    #[cfg(test)]
     pub fn update_pool_program_owner(
         &self,
         pool_address: &str,
@@ -1628,6 +1592,7 @@ impl ArbDatabase {
             .map_err(Into::into)
     }
 
+    #[cfg(test)]
     pub fn upsert_route_family(&self, record: &RouteFamilyGraphRecord) -> Result<i64> {
         self.conn.execute(
             r#"
@@ -1653,6 +1618,7 @@ impl ArbDatabase {
         self.route_family_id(&record.pair, record.buy_venue, record.sell_venue)
     }
 
+    #[cfg(test)]
     pub fn upsert_route_edge(&self, record: &RouteEdgeGraphRecord) -> Result<i64> {
         self.conn.execute(
             r#"
@@ -1706,6 +1672,7 @@ impl ArbDatabase {
         Ok(self.conn.last_insert_rowid())
     }
 
+    #[cfg(test)]
     pub fn route_family_id(
         &self,
         pair: &TokenPair,
@@ -1729,6 +1696,7 @@ impl ArbDatabase {
             .map_err(Into::into)
     }
 
+    #[cfg(test)]
     pub fn route_edge_id(
         &self,
         route_family_id: i64,
@@ -2196,23 +2164,6 @@ impl ArbDatabase {
     }
 
     #[cfg(test)]
-    pub(crate) fn latest_quote_cycle(&self, route_edge_id: i64) -> Result<i64> {
-        self.conn
-            .query_row(
-                r#"
-                SELECT cycle
-                FROM quote_observations
-                WHERE route_edge_id = ?1
-                ORDER BY id DESC
-                LIMIT 1
-                "#,
-                [route_edge_id],
-                |row| row.get(0),
-            )
-            .map_err(Into::into)
-    }
-
-    #[cfg(test)]
     fn table_names(&self) -> Result<std::collections::HashSet<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
@@ -2247,6 +2198,7 @@ pub fn canonical_route_key(
     )
 }
 
+#[cfg(test)]
 fn pool_kind_name(kind: PoolKind) -> &'static str {
     match kind {
         PoolKind::ConstantProduct => "constant_product",
@@ -2276,6 +2228,7 @@ fn optional_unix_ms_i64(value: Option<u128>) -> Result<Option<i64>> {
     value.map(unix_ms_i64).transpose()
 }
 
+#[cfg(test)]
 fn optional_u128_i64(value: Option<u128>) -> Result<Option<i64>> {
     value.map(unix_ms_i64).transpose()
 }
@@ -3307,7 +3260,7 @@ mod tests {
         let family = &report.families[0];
         assert_eq!(family.buy_venue, "meteora");
         assert_eq!(family.sell_venue, "raydium");
-        assert_eq!(family.enabled, true);
+        assert!(family.enabled);
         assert_eq!(family.total_edges, 1);
         assert_eq!(
             family.readiness_counts,

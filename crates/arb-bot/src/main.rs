@@ -117,6 +117,8 @@ enum Command {
 async fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env().add_directive("arb_bot=info".parse()?))
+        // Logs go to stderr so subcommands that print JSON keep stdout machine-readable.
+        .with_writer(std::io::stderr)
         .init();
 
     let cli = Cli::parse();
@@ -672,6 +674,30 @@ fn read_address_at(data: &[u8], offset: usize) -> Result<Address> {
     Ok(Address::new_from_array(out))
 }
 
+fn address_from_pubkey_string(value: &str) -> Result<Address> {
+    let pubkey = value
+        .parse::<Pubkey>()
+        .with_context(|| format!("invalid pubkey {value}"))?;
+    Ok(Address::new_from_array(pubkey.to_bytes()))
+}
+
+fn address_to_string(address: Address) -> String {
+    let mut bytes = [0u8; 32];
+    bytes.copy_from_slice(address.as_ref());
+    Pubkey::new_from_array(bytes).to_string()
+}
+
+fn address_is_zero(address: Address) -> bool {
+    address.as_ref().iter().all(|byte| *byte == 0)
+}
+
+fn system_now_unix_ms() -> Result<u128> {
+    Ok(std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("system clock is before unix epoch")?
+        .as_millis())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -743,28 +769,4 @@ mod tests {
             .expect("required flag");
         assert_eq!(required, 0);
     }
-}
-
-fn address_from_pubkey_string(value: &str) -> Result<Address> {
-    let pubkey = value
-        .parse::<Pubkey>()
-        .with_context(|| format!("invalid pubkey {value}"))?;
-    Ok(Address::new_from_array(pubkey.to_bytes()))
-}
-
-fn address_to_string(address: Address) -> String {
-    let mut bytes = [0u8; 32];
-    bytes.copy_from_slice(address.as_ref());
-    Pubkey::new_from_array(bytes).to_string()
-}
-
-fn address_is_zero(address: Address) -> bool {
-    address.as_ref().iter().all(|byte| *byte == 0)
-}
-
-fn system_now_unix_ms() -> Result<u128> {
-    Ok(std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .context("system clock is before unix epoch")?
-        .as_millis())
 }

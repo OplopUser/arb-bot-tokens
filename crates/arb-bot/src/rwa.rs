@@ -1767,7 +1767,7 @@ fn rwa_wsol_stable_funding_enabled() -> bool {
 }
 
 fn rwa_pyth_discount_buy_enabled(config: &RwaConfig) -> bool {
-    env_bool("RWA_PYTH_DISCOUNT_BUY_ENABLED").unwrap_or_else(|| {
+    env_bool("RWA_PYTH_DISCOUNT_BUY_ENABLED").unwrap_or({
         config.directional_enabled && matches!(config.mode, RwaMode::Directional | RwaMode::Both)
     })
 }
@@ -1802,10 +1802,10 @@ fn partition_taker_fundable_quote_requests(
     let mut fundable = Vec::new();
     let mut quote_only = Vec::new();
     for request in requests {
-        if {
-            let input_mint = input_mint_for_side(&request.pair, request.side);
-            balances.get(input_mint).copied().unwrap_or_default() >= request.in_amount_atoms
-        } {
+        let input_mint = input_mint_for_side(&request.pair, request.side);
+        let fundable_from_balance =
+            balances.get(input_mint).copied().unwrap_or_default() >= request.in_amount_atoms;
+        if fundable_from_balance {
             fundable.push(request.clone());
         } else {
             quote_only.push(request.clone());
@@ -1903,6 +1903,7 @@ fn build_primary_rfq_probe_quote_requests(
     filter_primary_route_quote_requests(&requests, assets)
 }
 
+#[cfg(test)]
 fn cap_quote_requests(requests: &mut Vec<AggregatorQuoteRequest>, max_requests: Option<usize>) {
     cap_quote_requests_with_offset(requests, max_requests, 0);
 }
@@ -6119,7 +6120,7 @@ mod tests {
 
         let wallet_filtered = build_quote_requests_for_balances(
             &config,
-            &[asset.clone()],
+            std::slice::from_ref(&asset),
             &quote_assets,
             &HashMap::new(),
             Some(&balances),

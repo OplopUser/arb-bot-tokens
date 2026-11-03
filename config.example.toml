@@ -1,11 +1,25 @@
+# Documented token/native-pool profile and template for your own config.toml:
+#
+#   cp config.example.toml config.toml
+#
+# Used as-is by the `npm run tokens:*` / `rust:run` scripts. It inspects live
+# opportunities and, when a wallet is present, builds, signs and simulates
+# candidates, but it never submits a transaction while
+# execution.submit_enabled = false. For a read-only scan with no wallet and no
+# signing, see config.minimal.toml.
+
 [rpc]
 primary_http = "https://api.mainnet-beta.solana.com"
+# Leave blank to derive wss:// from primary_http. For real runs, use a private
+# low-latency RPC in config.toml or edit this value.
 primary_ws = ""
+# Extra HTTP endpoints, also used when sending. Example: ["env:FALLBACK_RPC_URL"]
 fallback_http = []
 commitment = "processed"
 request_timeout_ms = 2500
 
 [wallet]
+# This file is ignored by git. Required for live balance checks and simulations.
 path = ".secrets/wallet.json"
 
 [database]
@@ -15,6 +29,8 @@ migrations_on_startup = true
 busy_timeout_ms = 5000
 
 [trading]
+# true enables the execution pipeline (re-quote, build, sign, simulate). It does
+# not submit on its own: see [execution].submit_enabled.
 live = true
 trade_size_usd = 25.0
 min_net_profit_bps = 15.0
@@ -22,9 +38,9 @@ fee_safety_buffer_bps = 5.0
 max_active_tokens = 100
 scan_interval_ms = 1000
 quote_mints = [
-  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
-  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
-  "So11111111111111111111111111111111111111112",
+  "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", # USDC
+  "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB", # USDT
+  "So11111111111111111111111111111111111111112",  # WSOL
 ]
 major_denylist = [
   "So11111111111111111111111111111111111111112",
@@ -40,12 +56,12 @@ execution_enabled = false
 
 [discovery]
 enabled = true
-refresh_interval_ms = 300000
 index_enabled = true
 index_url = "https://api.dexscreener.com/latest/dex/tokens"
 max_index_pairs_per_token = 24
 min_index_liquidity_usd = 25000.0
 broad_rpc_enabled = false
+refresh_interval_ms = 300000
 
 [fees]
 priority_fee_percentile = 75.0
@@ -63,7 +79,10 @@ min_interval_ms = 10000
 
 [execution]
 enabled = true
+# Keep false. Submission additionally requires the arming env gates and a
+# non-zero session risk budget (see README, "Safety design").
 submit_enabled = false
+execution_profile = "token_probe_no_submit"
 max_live_smoke_trade_usd = 1.0
 max_live_trade_usd = 25.0
 min_absolute_profit_usd = 0.01
@@ -89,7 +108,6 @@ compute_unit_price_micro_lamports = 0
 stale_candidate_ttl_ms = 250
 native_prefunded_hot_accounts = false
 address_lookup_tables = []
-execution_profile = "token_probe_no_submit"
 native_price_only_execution_enabled = true
 native_scout_min_net_profit_bps = 0.0
 jupiter_probe_trade_sizes_usd = [2.0, 5.0, 10.0, 25.0, 50.0, 100.0]
@@ -101,15 +119,15 @@ max_live_fee_loss_usd_per_session = 0.0
 max_failed_transactions_per_session = 0
 
 [[execution.native_focus_routes]]
-base_mint = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
-quote_mint = "So11111111111111111111111111111111111111112"
+base_mint = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm" # WIF
+quote_mint = "So11111111111111111111111111111111111111112"  # WSOL
 buy_venue = "meteora"
 sell_venue = "raydium"
 require_fresh_accounts = true
 
 [[execution.native_focus_routes]]
-base_mint = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
-quote_mint = "So11111111111111111111111111111111111111112"
+base_mint = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump" # FARTCOIN
+quote_mint = "So11111111111111111111111111111111111111112"  # WSOL
 buy_venue = "meteora"
 sell_venue = "raydium"
 require_fresh_accounts = true
@@ -124,7 +142,7 @@ timeout_ms = 1200
 slippage_bps = 50
 
 [[jupiter.seed_pairs]]
-base_mint = "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g"
+base_mint = "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g" # HYPE
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 base_decimals = 9
 quote_decimals = 6
@@ -136,7 +154,7 @@ base_decimals = 9
 quote_decimals = 9
 
 [[jupiter.seed_pairs]]
-base_mint = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN"
+base_mint = "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN" # TRUMP
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 base_decimals = 6
 quote_decimals = 6
@@ -148,7 +166,7 @@ base_decimals = 6
 quote_decimals = 9
 
 [[jupiter.seed_pairs]]
-base_mint = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump"
+base_mint = "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump" # FARTCOIN
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 base_decimals = 6
 quote_decimals = 6
@@ -160,7 +178,7 @@ base_decimals = 6
 quote_decimals = 9
 
 [[jupiter.seed_pairs]]
-base_mint = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm"
+base_mint = "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm" # WIF
 quote_mint = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 base_decimals = 6
 quote_decimals = 6

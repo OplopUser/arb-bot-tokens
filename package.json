@@ -1,6 +1,7 @@
 {
   "name": "arb-bot-tokens",
   "version": "1.0.0",
+  "type": "module",
   "description": "Rust-first native Solana token pool arbitrage bot with Orca, Raydium, and Meteora support",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -10,17 +11,17 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/cli.js",
-    "dev": "ts-node src/cli.ts",
-    "scan": "ts-node src/cli.ts scan",
-    "watch": "ts-node src/cli.ts watch",
-    "tokens": "ts-node src/cli.ts tokens",
-    "dashboard": "ts-node src/dashboard.ts",
+    "dev": "tsx src/cli.ts",
+    "scan": "tsx src/cli.ts scan",
+    "watch": "tsx src/cli.ts watch",
+    "tokens": "tsx src/cli.ts tokens",
+    "dashboard": "tsx src/dashboard.ts",
     "start:dashboard": "node dist/dashboard.js",
     "rust:build": "cargo build -p arb-bot",
     "rust:test": "cargo test -p arb-bot",
-    "rust:run": "cargo run -p arb-bot -- run --config config.tokens.toml",
-    "tokens:run": "cargo run -p arb-bot -- run --config config.tokens.toml",
-    "tokens:discover": "cargo run -p arb-bot -- discover --config config.tokens.toml",
+    "rust:run": "cargo run -p arb-bot -- run --config config.example.toml",
+    "tokens:run": "cargo run -p arb-bot -- run --config config.example.toml",
+    "tokens:discover": "cargo run -p arb-bot -- discover --config config.example.toml",
     "lint": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
@@ -37,7 +38,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.10.5",
-    "ts-node": "^10.9.2",
+    "tsx": "^4.23.15",
     "typescript": "^5.7.3"
   },
   "engines": {
